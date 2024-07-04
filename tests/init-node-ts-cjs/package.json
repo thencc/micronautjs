@@ -5,8 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "postinstall": "npm run link",
-    "link": "npm link @thencc/Micronautjs",
-    "unlink": "npm unlink @thencc/Micronautjs",
+    "link": "npm link @thencc/micronautjs",
+    "unlink": "npm unlink @thencc/micronautjs",
     "test": "ts-node -r dotenv/config src/index.ts dotenv_config_path=../.env",
     "build": "rm -rf dist && tsc",
     "test-built": "node -r dotenv/config ./dist/index.js dotenv_config_path=../.env"

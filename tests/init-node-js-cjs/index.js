@@ -1,6 +1,6 @@
 // const Micronaut = require('@thencc/Micronautjs').default; // this works
-// const { default: Micronaut } = require('@thencc/Micronautjs'); // AND this works
-const { Micronaut } = require("@thencc/Micronautjs"); // AND this works
+// const { default: Micronaut } = require('@thencc/micronautjs'); // AND this works
+const { Micronaut } = require("@thencc/micronautjs"); // AND this works
 console.log("Micronaut", Micronaut);
 
 (async () => {

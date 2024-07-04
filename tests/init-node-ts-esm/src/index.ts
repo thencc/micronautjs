@@ -1,5 +1,5 @@
-// import Micronaut from '@thencc/Micronautjs'; // works
-import { Micronaut } from "@thencc/Micronautjs"; // works
+// import Micronaut from '@thencc/micronautjs'; // works
+import { Micronaut } from "@thencc/micronautjs"; // works
 
 async function run() {
   console.log("run started");

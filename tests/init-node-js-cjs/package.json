@@ -5,8 +5,8 @@
   "main": "index.js",
   "scripts": {
     "postinstall": "npm run link",
-    "link": "npm link @thencc/Micronautjs",
-    "unlink": "npm unlink @thencc/Micronautjs",
+    "link": "npm link @thencc/micronautjs",
+    "unlink": "npm unlink @thencc/micronautjs",
     "test": "node -r dotenv/config index.js dotenv_config_path=../.env"
   }
 }

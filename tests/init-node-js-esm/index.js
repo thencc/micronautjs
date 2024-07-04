@@ -1,19 +1,19 @@
 // works
-import { Micronaut } from "@thencc/Micronautjs";
+import { Micronaut } from "@thencc/micronautjs";
 
 // works
-// import MicronautJS from '@thencc/Micronautjs';
+// import MicronautJS from '@thencc/micronautjs';
 // console.log('MicronautJS', MicronautJS);
 // const Micronaut = MicronautJS.default;
 
 // this SHOULD work but doesnt...
-// import { default as Micronaut } from '@thencc/Micronautjs';
+// import { default as Micronaut } from '@thencc/micronautjs';
 
 // test instance
 console.log("Micronaut", Micronaut);
 
 // works
-import { buffer } from "@thencc/Micronautjs";
+import { buffer } from "@thencc/micronautjs";
 console.log("buffer", buffer);
 
 (async () => {
