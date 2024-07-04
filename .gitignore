@@ -1,0 +1,10 @@
+coverage/
+node_modules
+.DS_Store
+*.local
+test/.env
+.env
+algo.config.ts
+src/contracts/priv
+tests-ts/dist
+dist_*/

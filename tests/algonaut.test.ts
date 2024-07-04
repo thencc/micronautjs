@@ -1,0 +1,799 @@
+import {
+  describe,
+  expect,
+  test,
+  beforeAll,
+  beforeEach,
+  jest,
+} from "@jest/globals";
+import { Micronaut } from "../src/index";
+import {
+  accountAppID,
+  bricksID,
+  txnCallApp,
+  txnCloseOutApp,
+  txnCreateAsset,
+  txnDeleteApp,
+  txnOptInApp,
+  txnOptInAsset,
+  txnPayment,
+  txnSendAsset,
+} from "./mocks/txns";
+import {
+  MicronautConfig,
+  MicronautWallet,
+  MicronautAppState,
+} from "../src/MicronautTypes";
+import accounttContractValid from "./mocks/account-contract-valid";
+import accountv2 from "./mocks/accountv2";
+import accountClear from "./mocks/account-clear";
+import getAppLocalStateResponse from "./mocks/getAppLocalStateResponse";
+import algosdk from "algosdk";
+import { mainnetConfig, testnetConfig } from "../src/algo-config";
+
+import * as dotenv from "dotenv";
+import path from "path";
+dotenv.config({ path: path.resolve(__dirname, "./.env") });
+// console.log('process.env', process.env);
+
+// if there is not a valid test mnemonic, we cannot proceed!
+const testAccountMnemonic: string = process.env
+  .Micronaut_TEST_MNEMONIC as string;
+
+const validConfig: MicronautConfig = {
+  nodeConfig: {
+    BASE_SERVER: process.env.NCC_BASE_SERVER as string,
+    INDEX_SERVER: process.env.NCC_INDEX_SERVER,
+    LEDGER: process.env.NCC_LEDGER as string,
+    PORT: process.env.NCC_PORT as string,
+    API_TOKEN: {
+      [process.env.NCC_API_TOKEN_HEADER as string]: process.env.NCC_API_TOKEN,
+    },
+  },
+};
+
+if (!testAccountMnemonic)
+  console.error(
+    "You must set Micronaut_TEST_MNEMONIC in your environment. This account needs a little bit of ALGO to run the tests."
+  );
+try {
+  const account = new Micronaut().recoverAccount(testAccountMnemonic);
+  console.log(`Account set for tests: ${account.addr}`);
+} catch (e) {
+  console.error("Micronaut_TEST_MNEMONIC is not a valid Algorand account");
+}
+
+// this is a new wallet we use to test various things,
+// created at the beginning of each test run but used throughout
+let freshWallet: MicronautWallet;
+
+// describe('instantiate Micronaut without inkey', () => {
+//     let Micronaut: Micronaut;
+
+//     beforeEach(() => {
+//         Micronaut = new Micronaut(validConfig);
+//     });
+
+//     test('valid config instantiates Micronaut', () => {
+//         expect(Micronaut.nodeConfig).toBeDefined();
+//         expect(Micronaut.algodClient).toBeDefined();
+//         expect(Micronaut.isValidNodeConfig(validConfig.nodeConfig)).toBeTruthy();
+//     })
+// });
+
+// describe('instantiate Micronaut with inkey', () => {
+//     let Micronaut: Micronaut;
+
+//     beforeEach(() => {
+//         Micronaut = new Micronaut(validConfig); // inkey is the default
+//     });
+// })
+
+// isValidNodeConfig
+describe("isValidNodeConfig", () => {
+  const invalidConfig = {
+    BASE_SERVER: "",
+    LEDGER: "",
+    PORT: "",
+    API_TOKEN: "",
+  };
+  test("require BASE_SERVER", () => {
+    expect(
+      new Micronaut(validConfig).isValidNodeConfig(invalidConfig)
+    ).toBeFalsy();
+  });
+
+  test("isValidNodeConfig returns true for a valid config", () => {
+    expect(
+      new Micronaut(validConfig).isValidNodeConfig(validConfig.nodeConfig)
+    ).toBe(true);
+  });
+});
+
+describe("getNodeConfig", () => {
+  test("getNodeConfig returns config object", () => {
+    const Micronaut = new Micronaut(validConfig);
+    expect(Micronaut.getNodeConfig()).toEqual(validConfig["nodeConfig"]);
+  });
+
+  test("getNodeConfig returns false if Micronaut is not configured", () => {
+    expect(Micronaut.prototype.getNodeConfig()).toBeFalsy();
+  });
+});
+
+describe("setNodeConfig", () => {
+  let a: Micronaut;
+  beforeEach(() => {
+    a = new Micronaut();
+  });
+
+  test("mainnet config string works", () => {
+    a.setNodeConfig("mainnet");
+    expect(a.nodeConfig.BASE_SERVER).toEqual(mainnetConfig?.BASE_SERVER);
+  });
+
+  test("testnet config string works", () => {
+    a.setNodeConfig("testnet");
+    expect(a.nodeConfig.BASE_SERVER).toEqual(testnetConfig?.BASE_SERVER);
+  });
+
+  test("should throw error with any other string", () => {
+    // @ts-expect-error 123
+    expect(() => a.setNodeConfig("bababa")).toThrow();
+  });
+});
+
+describe("Micronaut methods", () => {
+  // increase timeout here so we can wait for transactions to confirm
+  jest.setTimeout(120000);
+
+  let Micronaut: Micronaut;
+
+  beforeEach(async () => {
+    Micronaut = new Micronaut(validConfig);
+  });
+
+  // this test passes when it's the only one running, due to jest running things in parallel?
+  // test.only('mnemonic connect should update active account', async () => {
+  //     const account = Micronaut.createWallet();
+  //     await Micronaut.disconnectAll();
+  //     await Micronaut.connect({ mnemonic: account.mnemonic });
+  //     expect(Micronaut.account?.address).toBe(account.address);
+  //     await Micronaut.disconnectAll();
+  // })
+
+  test("createWallet creates an account object with address and mnemonic parameters", () => {
+    const wallet = Micronaut.createWallet();
+    expect(wallet).toBeDefined();
+    expect(wallet.address).toBeDefined();
+    expect(wallet.mnemonic).toBeDefined();
+  });
+
+  test("recoverAccount should throw error with incorrect mnemonic", () => {
+    expect(() => Micronaut.recoverAccount("INVALID")).toThrow();
+  });
+
+  test("recoverAccount works with a newly created wallet", () => {
+    const account = Micronaut.createWallet();
+    const recoveredAccount = Micronaut.recoverAccount(account.mnemonic);
+    expect(recoveredAccount.addr).toBeDefined();
+    expect(recoveredAccount.sk).toBeDefined();
+  });
+
+  test("b64StrToHumanStr decodes base64-encoded text", () => {
+    expect(Micronaut.b64StrToHumanStr("SGVsbG8gV29ybGQ=")).toBe("Hello World");
+  });
+
+  test("stateArrayToObject correctly transforms state array", () => {
+    const obj = Micronaut.stateArrayToObject(getAppLocalStateResponse.locals);
+    expect(obj.name).toBe("Name");
+    expect(obj.bio).toBe("Description of me");
+  });
+
+  // test('set account changes Micronaut account', () => {
+  //     const account1 = algosdk.generateAccount();
+  //     Micronaut.createWallet();
+  //     expect(Micronaut.account?.addr).not.toBe(account1.addr);
+  //     Micronaut.setAccount(account1);
+  //     expect(Micronaut.account?.addr).toBe(account1.addr);
+  // })
+
+  test("toUint8Array returns Uint8Array", () => {
+    expect(Micronaut.toUint8Array("test note")).toBeInstanceOf(Uint8Array);
+  });
+
+  describe("txnSummary", () => {
+    test("txnSummary takes in a txn and returns a string", () => {
+      const summary = Micronaut.txnSummary(txnPayment);
+      expect(typeof summary).toBe("string");
+    });
+
+    test("identifies payment txn", () => {
+      const summary = Micronaut.txnSummary(txnPayment);
+      expect(summary.includes("Send")).toBe(true);
+    });
+
+    test("identifies opt in asset txn", () => {
+      const summary = Micronaut.txnSummary(txnOptInAsset);
+      expect(summary.includes(`Opt-in to asset ID ${bricksID}`)).toBe(true);
+    });
+
+    test("identifies asset xfer", () => {
+      const summary = Micronaut.txnSummary(txnSendAsset);
+      expect(summary.includes(`Transfer 1 of asset ID ${bricksID}`)).toBe(true);
+    });
+
+    test("identifies create asset", () => {
+      const summary = Micronaut.txnSummary(txnCreateAsset);
+      expect(summary.includes("Create asset Test Asset, symbol TEST")).toBe(
+        true
+      );
+    });
+
+    test("identifies call app", () => {
+      const summary = Micronaut.txnSummary(txnCallApp);
+      expect(summary.includes(`Call to application ID ${accountAppID}`)).toBe(
+        true
+      );
+    });
+
+    test("identifies opt in app", () => {
+      const summary = Micronaut.txnSummary(txnOptInApp);
+      expect(summary.includes(`Opt-in to application ID ${accountAppID}`)).toBe(
+        true
+      );
+    });
+
+    test("identifies close out app", () => {
+      const summary = Micronaut.txnSummary(txnCloseOutApp);
+      expect(summary.includes(`Close out application ID ${accountAppID}`)).toBe(
+        true
+      );
+    });
+
+    test("identifies delete app", () => {
+      const summary = Micronaut.txnSummary(txnDeleteApp);
+      expect(summary.includes(`Delete application ID ${accountAppID}`)).toBe(
+        true
+      );
+    });
+
+    // test('identifies update app', () => {
+    //     const summary = utils.txnSummary(txnUpdateApp);
+    //     expect(summary.includes(`Update application ID ${accountAppID}`)).toBeTruthy();
+    // })
+  });
+
+  test("getAppEscrowAccount returns app address", () => {
+    const appAddress = algosdk.getApplicationAddress(accountAppID);
+    expect(Micronaut.getAppEscrowAccount(accountAppID)).toEqual(appAddress);
+  });
+
+  describe("compileProgram", () => {
+    test("compileProgram successfully compiles a valid program", async () => {
+      const compiled = await Micronaut.compileProgram(accounttContractValid);
+      expect(compiled).toBeDefined();
+      expect(compiled).toBeInstanceOf(Uint8Array);
+    });
+  });
+
+  describe("checkStatus", () => {
+    test("check status returns network status", async () => {
+      const status = await Micronaut.checkStatus();
+      expect(status["catchpoint"]).toBeDefined();
+      expect(status["catchpoint-acquired-blocks"]).toBeDefined();
+      expect(status["catchpoint-processed-accounts"]).toBeDefined();
+      expect(status["catchpoint-total-accounts"]).toBeDefined();
+      expect(status["catchpoint-verified-accounts"]).toBeDefined();
+      expect(status["catchup-time"]).toBeDefined();
+      expect(status["last-catchpoint"]).toBeDefined();
+      expect(status["last-round"]).toBeDefined();
+      expect(status["last-version"]).toBeDefined();
+      expect(status["next-version"]).toBeDefined();
+      expect(status["next-version-round"]).toBeDefined();
+      expect(status["next-version-supported"]).toBeDefined();
+      expect(status["stopped-at-unsupported-round"]).toBeDefined();
+      expect(status["time-since-last-round"]).toBeDefined();
+    });
+  });
+
+  describe("with mnemonic account", () => {
+    beforeEach(async () => {
+      await Micronaut.connect("mnemonic", testAccountMnemonic);
+      freshWallet = Micronaut.createWallet();
+    });
+
+    describe("getAlgoBalance", () => {
+      test("getAlgoBalance returns a number greater than zero", async () => {
+        const balance = await Micronaut.getAlgoBalance(
+          Micronaut.walletState.activeAddress
+        );
+        expect(balance).toBeGreaterThan(0);
+      });
+    });
+
+    describe("getAccountInfo", () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let info: any;
+      beforeAll(async () => {
+        info = await Micronaut.getAccountInfo(
+          Micronaut.walletState.activeAddress
+        );
+      });
+
+      test("getAccountInfo contains all account info properties", async () => {
+        expect(info.address).toBeDefined();
+        expect(info.amount).toBeGreaterThan(0);
+        expect(info["apps-local-state"]).toBeDefined();
+        expect(info["assets"]).toBeDefined();
+        expect(info["pending-rewards"]).toBeDefined();
+        expect(info["round"]).toBeDefined();
+        expect(info["status"]).toBeDefined();
+        expect(info["total-apps-opted-in"]).toBeDefined();
+        expect(info["total-assets-opted-in"]).toBeDefined();
+        expect(info["total-created-apps"]).toBeDefined();
+        expect(info["total-created-assets"]).toBeDefined();
+      });
+    });
+
+    describe("sendAlgo / atomicPayment", () => {
+      test("atomicPayment creates a transaction", async () => {
+        const to = algosdk.generateAccount();
+        const txn = await Micronaut.atomicSendAlgo({ to: to.addr, amount: 10 });
+        expect(txn.transaction instanceof algosdk.Transaction).toBeTruthy();
+      });
+
+      test("atomicSendAlgo creates a transaction", async () => {
+        const to = algosdk.generateAccount();
+        const txn = await Micronaut.atomicSendAlgo({ to: to.addr, amount: 10 });
+        expect(txn.transaction instanceof algosdk.Transaction).toBeTruthy();
+      });
+
+      test("sendAlgo sends ALGO successfully", async () => {
+        // this test doubles as a way to fund the new wallet for opt-in tests later
+        // so if it fails, it causes a bit of a domino effect
+        await Micronaut.sendAlgo({ to: freshWallet.address, amount: 500000 });
+        const bal = await Micronaut.getAlgoBalance(freshWallet.address);
+        expect(bal).toBe(500000);
+      });
+    });
+
+    describe("Asset method tests", () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let asset: any;
+
+      // might as well spam test net with some ads :)
+      const assetArgs = {
+        assetName: "Micronaut.JS",
+        symbol: "NCCALGO",
+        metaBlock: "Micronaut.js is a library for developing Algorand dApps",
+        decimals: 3,
+        amount: 5,
+        url: "https://github.com/thencc/Micronautjs",
+      };
+
+      test("atomicCreateAsset returns a transaction", async () => {
+        const txn = await Micronaut.atomicCreateAsset(assetArgs);
+        expect(txn.transaction instanceof algosdk.Transaction).toBe(true);
+      });
+
+      test("createAsset returns createdIndex property", async () => {
+        asset = await Micronaut.createAsset(assetArgs);
+        expect(asset.status).toBe("success");
+        expect(asset.createdIndex).toBeDefined();
+      });
+
+      test("getAssetInfo returns asset info", async () => {
+        const info = await Micronaut.getAssetInfo(asset.createdIndex);
+        // console.log('getAssetInfo response', info);
+        expect(info).toBeDefined();
+        // check all properties! in case the API changes, we will know immediately :)
+        expect(info).toHaveProperty("index");
+        expect(info).toHaveProperty("params");
+        expect(info).toHaveProperty("params.name-b64");
+        expect(info).toHaveProperty("params.unit-name-b64");
+        expect(info).toHaveProperty("params.default-frozen");
+        expect(info.params.clawback).toBe(Micronaut.walletState.activeAddress);
+        expect(info.params.freeze).toBe(Micronaut.walletState.activeAddress);
+        expect(info.params.manager).toBe(Micronaut.walletState.activeAddress);
+        expect(info.params.reserve).toBe(Micronaut.walletState.activeAddress);
+        expect(info.params.creator).toBe(Micronaut.walletState.activeAddress);
+        expect(info.params.decimals).toBe(assetArgs.decimals);
+        expect(info.params.total).toBe(assetArgs.amount);
+        expect(info.params["unit-name"]).toBe(assetArgs.symbol);
+        expect(info.params["name"]).toBe(assetArgs.assetName);
+      });
+
+      test("getTokenBalance returns 5 (amount specified during createAsset)", async () => {
+        const bal = await Micronaut.getTokenBalance(
+          Micronaut.walletState.activeAddress,
+          asset.createdIndex
+        );
+        expect(bal).toBe(5);
+      });
+
+      test("atomicOptInAsset returns a transaction", async () => {
+        const txn = await Micronaut.atomicOptInAsset(asset.createdIndex);
+        expect(txn.transaction instanceof algosdk.Transaction).toBe(true);
+      });
+
+      test("isOptedIntoAsset returns false with a new account", async () => {
+        await Micronaut.mnemonicConnect(freshWallet.mnemonic);
+        const optedIn = await Micronaut.isOptedIntoAsset({
+          account: Micronaut.walletState.activeAddress,
+          assetId: asset.createdIndex,
+        });
+        // expect(optedIn).toBe(false);
+
+        // FYI the creator acct is automatically opted-in + holds the reserve supply
+        expect(optedIn).toBe(true);
+      });
+
+      test("optInAsset successfully opts in to newly created asset", async () => {
+        Micronaut.mnemonicConnect(freshWallet.mnemonic);
+        const res = await Micronaut.optInAsset(asset.createdIndex);
+        expect(res.status).toBe("success");
+
+        const optedIn = await Micronaut.isOptedIntoAsset({
+          account: Micronaut.walletState.activeAddress,
+          assetId: asset.createdIndex,
+        });
+        expect(optedIn).toBe(true);
+      });
+
+      test("atomicSendAsset returns a transaction", async () => {
+        const txn = await Micronaut.atomicSendAsset({
+          to: freshWallet.address,
+          amount: 1,
+          assetIndex: asset.createdIndex,
+        });
+        expect(txn.transaction instanceof algosdk.Transaction).toBe(true);
+      });
+
+      test("sendAsset successfully sends asset", async () => {
+        // --- old ---
+        // await Micronaut.mnemonicConnect(testAccountMnemonic);
+        // // to addr has to opt-in before being sent an asset (they might have 0 bal tho so send them a little algo first)
+        // const res = await Micronaut.sendAsset({ to: freshWallet.address, amount: 1, assetIndex: asset.createdIndex });
+        // expect(res).toHaveProperty('txId');
+        // expect(res.status).toBe('success');
+        // expect(res.error).toBeUndefined();
+        // // check balance
+        // const bal = await Micronaut.getTokenBalance(freshWallet.address, asset.createdIndex);
+        // expect(bal).toBe(1);
+
+        // --- new ---
+        // FYI - to addr has to opt-in before being sent an asset (they might have 0 bal tho so send them a little algo first)
+
+        // 1. fund
+        await Micronaut.mnemonicConnect(testAccountMnemonic);
+        const fundTxn = await Micronaut.sendAlgo({
+          // from: testAcct.addr,
+          to: freshWallet.address,
+          amount: 220000, // above min bal
+        });
+        console.log("fundTxn", fundTxn);
+        await Micronaut.disconnectAll();
+
+        // 2. opt-in
+        // use the fresh acct/wallet as the active acct because opt-in txn uses this as the .from + .to
+        await Micronaut.connect("mnemonic", freshWallet.mnemonic);
+        const optInTxn = await Micronaut.optInAsset(asset.createdIndex);
+        console.log("optInTxn", optInTxn);
+        await Micronaut.disconnectAll();
+
+        // 3. send asset
+        const testAcct = new Micronaut().recoverAccount(testAccountMnemonic);
+        console.log("testAcct", testAcct);
+        await Micronaut.mnemonicConnect(testAccountMnemonic);
+        // FYI cannot fund, opt-in and send asset in 1 atomic...
+        const res = await Micronaut.sendTransaction([
+          // await Micronaut.atomicSendAlgo({
+          //     from: testAcct.addr,
+          //     to: freshWallet.address,
+          //     amount: 120000, // above min bal for holding 1 asset
+          // }),
+
+          // opt-in uses Micronaut active account as to + from
+          // await Micronaut.atomicOptInAsset(
+          //     asset.createdIndex
+          // ),
+
+          await Micronaut.atomicSendAsset({
+            from: testAcct.addr, // BJV...
+            to: freshWallet.address,
+            assetIndex: asset.createdIndex,
+            amount: 1,
+          }),
+        ]);
+        console.log("res", res);
+
+        expect(res).toHaveProperty("txId");
+        expect(res.status).toBe("success");
+        expect(res.error).toBeUndefined();
+        // check balance
+        const bal = await Micronaut.getTokenBalance(
+          freshWallet.address,
+          asset.createdIndex
+        );
+        expect(bal).toBe(1);
+      });
+
+      test("atomicDeleteAsset returns a transaction", async () => {
+        const txn = await Micronaut.atomicDeleteAsset(asset.createdIndex);
+        expect(txn.transaction instanceof algosdk.Transaction).toBe(true);
+      });
+
+      test("deleteAsset successfully deletes asset", async () => {
+        const asset2Args = {
+          assetName: "Presto Deleto",
+          symbol: "DEL",
+          metaBlock: "Everything is temporary!",
+          decimals: 3,
+          amount: 1,
+        };
+        const asset2 = await Micronaut.createAsset(asset2Args);
+        if (!asset2.createdIndex)
+          return console.error("Error creating temporary asset");
+        const res = await Micronaut.deleteAsset(asset2.createdIndex);
+        expect(res.status).toBe("success");
+        expect(res.error).toBeUndefined();
+      });
+    });
+
+    describe("App tests", () => {
+      const ACCOUNT_APP = 51066775; // the account app from arts-council
+      const createAppArgs = {
+        tealApprovalCode: accounttContractValid,
+        tealClearCode: accountClear,
+        appArgs: [],
+        schema: {
+          localInts: 4,
+          localBytes: 12,
+          globalInts: 1,
+          globalBytes: 1,
+        },
+      };
+
+      const updateAppArgs = {
+        appIndex: 123456789,
+        tealApprovalCode: accountv2,
+        tealClearCode: accountClear,
+        appArgs: [],
+      };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let createdApp: any;
+
+      test("atomicOptInApp returns a transaction", async () => {
+        const txn = await Micronaut.atomicOptInApp({
+          appIndex: ACCOUNT_APP,
+          appArgs: [],
+        });
+        expect(txn.transaction instanceof algosdk.Transaction).toBe(true);
+      });
+
+      test("optInApp successfully opts in", async () => {
+        const res = await Micronaut.optInApp({
+          appIndex: ACCOUNT_APP,
+          appArgs: [
+            "set_all",
+            "Name",
+            "Description of me",
+            "",
+            "https://example.com",
+            "",
+            "example@example.com",
+          ],
+        });
+        expect(res.status).toBe("success");
+      });
+
+      test("getAppLocalState returns local state using Micronaut.account by default", async () => {
+        const state: MicronautAppState = (await Micronaut.getAppLocalState(
+          ACCOUNT_APP
+        )) as MicronautAppState;
+        // console.log('getAppLocalState response: opted in', state);
+        expect(state).toBeDefined();
+        expect(state.hasState).toBe(true);
+        expect(state.globals).toHaveLength(0);
+        expect(state.locals.length).toBeDefined();
+        expect(state.index).toBe(ACCOUNT_APP);
+
+        const obj = Micronaut.stateArrayToObject(state.locals);
+
+        expect(obj.name).toBe("Name");
+        expect(obj.bio).toBe("Description of me");
+        expect(obj.contact).toBe("example@example.com");
+        expect(obj.link).toBe("https://example.com");
+      });
+
+      test("getAppLocalState also works with foreign address", async () => {
+        const state: MicronautAppState = (await Micronaut.getAppLocalState(
+          ACCOUNT_APP,
+          freshWallet.address
+        )) as MicronautAppState;
+        // console.log('getAppLocalState response: not opted in', state);
+        expect(state).toBeDefined();
+        expect(state.hasState).toBe(false);
+        expect(state.globals).toHaveLength(0);
+        expect(state.locals).toHaveLength(0);
+        expect(state.index).toBe(ACCOUNT_APP);
+      });
+
+      test("atomicCallApp returns a transaction", async () => {
+        const txn = await Micronaut.atomicCallApp({
+          appIndex: ACCOUNT_APP,
+          appArgs: ["version_test"],
+        });
+        expect(txn.transaction instanceof algosdk.Transaction).toBe(true);
+      });
+
+      test("callApp successfully updates local state", async () => {
+        const res = await Micronaut.callApp({
+          appIndex: ACCOUNT_APP,
+          appArgs: [
+            "set_all",
+            "New Name",
+            "Updated bio",
+            "New avatar",
+            "New link",
+            "",
+            "newemail@email.com",
+          ],
+        });
+        expect(res.status).toBe("success");
+        const state = await Micronaut.getAppLocalState(ACCOUNT_APP);
+        expect(state).toBeDefined(); // TODO: check for updated new name
+      });
+
+      test("atomicCloseOutApp returns a transaction", async () => {
+        const txn = await Micronaut.atomicCloseOutApp({
+          appIndex: ACCOUNT_APP,
+          appArgs: ["set_all", "", "", "", "", "", ""],
+        });
+        expect(txn.transaction instanceof algosdk.Transaction).toBe(true);
+      });
+
+      test("closeOutApp removes local state", async () => {
+        const res = await Micronaut.closeOutApp({
+          appIndex: ACCOUNT_APP,
+          appArgs: ["set_all", "", "", "", "", "", ""],
+        });
+        expect(res.status).toBe("success");
+      });
+
+      test("atomicCreateApp returns a transaction", async () => {
+        const txn = await Micronaut.atomicCreateApp(createAppArgs);
+        expect(txn.transaction instanceof algosdk.Transaction).toBe(true);
+      });
+
+      test("createApp successfully deploys an application and returns createdIndex", async () => {
+        const res = await Micronaut.createApp(createAppArgs);
+        expect(res.status).toBe("success");
+        expect(res.createdIndex).toBeDefined();
+        expect(res.createdIndex).toBeGreaterThan(0);
+        createdApp = res.createdIndex;
+        updateAppArgs.appIndex = res.createdIndex as number;
+      });
+
+      test("getAppGlobalState returns global state for app", async () => {
+        const state = await Micronaut.getAppGlobalState(createdApp);
+        console.log(state);
+        expect(state).toBeDefined();
+        expect(state.admin).toBeDefined();
+      });
+
+      test("valueAsAddr successfully decodes", async () => {
+        const state = await Micronaut.getAppGlobalState(ACCOUNT_APP);
+        const addr = Micronaut.valueAsAddr(state.admin);
+        expect(addr).toBeDefined();
+      });
+
+      test("getAppInfo returns all app info", async () => {
+        const info = await Micronaut.getAppInfo(createdApp);
+        console.log(info);
+        expect(info).toBeDefined();
+      });
+
+      test("atomicUpdateApp returns a transaction", async () => {
+        const txn = await Micronaut.atomicUpdateApp(updateAppArgs);
+        expect(txn.transaction instanceof algosdk.Transaction).toBe(true);
+      });
+
+      test("updateApp should update the application code", async () => {
+        // first we need to opt in to the app we've created
+
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const optIn = await Micronaut.optInApp({
+          appIndex: createdApp,
+          appArgs: [
+            "set_all",
+            "Name",
+            "Description of me",
+            "",
+            "https://example.com",
+            "",
+            "example@example.com",
+          ],
+        });
+
+        // this call SHOULD fail, because version_test doesn't exist on v1
+        try {
+          const res = await Micronaut.callApp({
+            appIndex: createdApp,
+            appArgs: ["version_test"],
+          });
+          expect(res.status).toBe("fail");
+        } catch (e) {
+          expect(e).toBeDefined();
+        }
+
+        // now we update the application and test the call again
+        const updateResult = await Micronaut.updateApp({
+          appIndex: createdApp,
+          tealApprovalCode: accountv2,
+          tealClearCode: accountClear,
+          appArgs: [],
+        });
+        expect(updateResult.status).toBe("success");
+
+        // and the call should pass now
+        const res = await Micronaut.callApp({
+          appIndex: createdApp,
+          appArgs: ["version_test"],
+        });
+        expect(res.status).toBe("success");
+      });
+
+      test("atomicDeleteApp returns a transaction", async () => {
+        const txn = await Micronaut.atomicDeleteApp(createdApp);
+        expect(txn.transaction instanceof algosdk.Transaction).toBe(true);
+      });
+
+      test("deleteApp successfully deletes the application", async () => {
+        const res = await Micronaut.deleteApp(createdApp);
+        expect(res.status).toBe("success");
+
+        // get info of deleted app
+        await expect(Micronaut.getAppInfo(createdApp)).rejects.toThrow();
+      });
+
+      test("deleteApp successfully deletes the application", async () => {
+        const newApp = await Micronaut.createApp(createAppArgs);
+        expect(newApp.status).toBe("success");
+
+        const res = await Micronaut.deleteApp(newApp.createdIndex as number);
+        expect(res.status).toBe("success");
+
+        // get info of deleted app
+        await expect(Micronaut.getAppInfo(createdApp)).rejects.toThrow();
+      });
+    });
+  });
+
+  // getAccounts
+  // waitForConfirmation
+  // sendAtomicTransaction
+  // sendTransaction
+
+  // ======= Logic Sig tests ======
+  // atomicAssetTransferWithLSig
+  // atomicPaymentWithLSig
+  // atomicCallAppWithLSig
+  // deployTealWithLSig
+  // generateLogicSig
+});
+// */
+
+// ========= inkey tests =========
+// initInkey
+// inkeyConnect
+// inkeyDisconnect
+// inkeyHide
+// inkeyMessageAsync
+// inkeySetApp
+// inkeyShow
+// inkeySignTxns
+// setInkeyAccount
+// usingInkeyWallet

@@ -1,0 +1,33 @@
+name: Test Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: "setup node env"
+        uses: actions/setup-node@v3
+        with:
+          node-version: 16
+
+      - uses: pnpm/action-setup@v2.2.2
+        with:
+          version: 8.5.0
+          run_install: |
+              args: [--no-frozen-lockfile, --strict-peer-dependencies]
+
+      # old way:
+      # - run: npm ci
+      # - run: npm run build
+
+      # new way: (faster)
+      - run: pnpm build
