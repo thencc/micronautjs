@@ -194,10 +194,10 @@ var Micronaut = class {
    */
   async connectAccount(mnemonic) {
     var _a;
-    if (!mnemonic) throw new Error("algonaut.mnemonicConnect: No mnemonic provided.");
+    if (!mnemonic) throw new Error("micronaut.mnemonicConnect: No mnemonic provided.");
     this.account = (0, import_algosdk.mnemonicToSecretKey)(mnemonic);
     this.address = this.account.addr;
-    if ((0, import_algosdk.isValidAddress)((_a = this.account) == null ? void 0 : _a.addr)) {
+    if (!(0, import_algosdk.isValidAddress)((_a = this.account) == null ? void 0 : _a.addr)) {
       throw new Error("Address is not valid");
     }
     this.mnemonic = import_algosdk.default.secretKeyToMnemonic(this.account.sk);

@@ -208,12 +208,12 @@ export class Micronaut {
    * @returns void
    */
   async connectAccount(mnemonic: string) {
-    if (!mnemonic) throw new Error('algonaut.mnemonicConnect: No mnemonic provided.');
+    if (!mnemonic) throw new Error('micronaut.mnemonicConnect: No mnemonic provided.');
 
     this.account = mnemonicToSecretKey(mnemonic);
     this.address = this.account.addr;
 
-    if (isValidAddress(this.account?.addr)) {
+    if (!isValidAddress(this.account?.addr)) {
       throw new Error('Address is not valid');
     }
     // if (this.config) this.config.SIGNING_MODE = 'local';
